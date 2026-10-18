@@ -8,6 +8,27 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional
 from simcorp.engine.db import get_db_connection, initialize_database
 
+# ---------------------------------------------------------------------------
+# Difficulty presets — every multiplier is applied during advance_day().
+# These tune how forgiving or punishing each scenario is.
+# ---------------------------------------------------------------------------
+DIFFICULTY_PRESETS: Dict[str, Dict[str, float]] = {
+    "easy":   {"demand_mult": 1.30, "cost_mult": 0.80, "event_freq": 0.50, "starting_cash_mult": 1.50},
+    "normal": {"demand_mult": 1.00, "cost_mult": 1.00, "event_freq": 1.00, "starting_cash_mult": 1.00},
+    "hard":   {"demand_mult": 0.80, "cost_mult": 1.20, "event_freq": 1.50, "starting_cash_mult": 0.75},
+    "brutal": {"demand_mult": 0.60, "cost_mult": 1.50, "event_freq": 2.00, "starting_cash_mult": 0.50},
+}
+
+# ---------------------------------------------------------------------------
+# Financial distress thresholds (cash as fraction of last-day total expenses)
+# ---------------------------------------------------------------------------
+DISTRESS_STAGES = {
+    "HEALTHY":  (float("inf"), 500.0),   # cash > 500
+    "WATCH":    (500.0,  200.0),          # 200 <= cash <= 500
+    "DISTRESS": (200.0,   50.0),          # 50  <= cash <= 200
+    "CRITICAL": (50.0,    0.0),           # 0   <= cash <= 50
+}
+
 class SimulationEngine:
     def __init__(self, db_path: Path | str = "simcorp.db", seed: int = 42):
         self.db_path = db_path
@@ -21,21 +42,27 @@ class SimulationEngine:
         initial_product_name: str = "Apex Micro-Sensor",
         initial_product_price: float = 120.0,
         initial_product_cost: float = 45.0,
-        initial_daily_target: int = 15
+        initial_daily_target: int = 15,
+        mode: str = "sandbox",
+        difficulty: str = "normal",
+        campaign_goal: str = "VALUATION_TARGET",
+        campaign_target_value: float = 50000.0,
+        campaign_deadline_days: int = 180,
     ) -> None:
-        """Initializes a brand new company and base ledger with 10,000 starting credits."""
+        """Initializes a brand new company with starting capital, difficulty settings, and a seed engineer."""
+        preset = DIFFICULTY_PRESETS.get(difficulty, DIFFICULTY_PRESETS["normal"])
+        effective_cash = starting_cash * preset["starting_cash_mult"]
+
         conn = get_db_connection(self.db_path)
         with conn:
             # Clear existing data for fresh game
-            conn.execute("DELETE FROM ledger;")
-            conn.execute("DELETE FROM products;")
-            conn.execute("DELETE FROM market_segments;")
-            conn.execute("DELETE FROM market_events;")
-            conn.execute("DELETE FROM daily_snapshots;")
-            conn.execute("DELETE FROM ai_decisions;")
-            conn.execute("DELETE FROM activity_log;")
-            conn.execute("DELETE FROM company;")
-            conn.execute("DELETE FROM game_clock;")
+            for tbl in [
+                "ledger", "products", "market_segments", "market_events",
+                "daily_snapshots", "ai_decisions", "activity_log", "company",
+                "game_clock", "employees", "rd_projects", "marketing_campaigns",
+                "loans", "game_settings",
+            ]:
+                conn.execute(f"DELETE FROM {tbl};")
 
             company_id = "comp_001"
             conn.execute(
@@ -47,12 +74,27 @@ class SimulationEngine:
                 "INSERT INTO game_clock (id, current_day, is_paused, tick_speed_seconds) VALUES (1, 1, 1, 3.0);"
             )
 
+            # Game settings / difficulty
+            conn.execute(
+                """INSERT INTO game_settings (
+                    id, mode, difficulty, campaign_goal, campaign_target_value,
+                    campaign_deadline_days, game_state,
+                    starting_cash_multiplier, demand_multiplier, cost_multiplier, event_frequency_multiplier
+                ) VALUES (1, ?, ?, ?, ?, ?, 'RUNNING', ?, ?, ?, ?);""",
+                (
+                    mode, difficulty, campaign_goal, campaign_target_value,
+                    campaign_deadline_days,
+                    preset["starting_cash_mult"], preset["demand_mult"],
+                    preset["cost_mult"], preset["event_freq"]
+                )
+            )
+
             # Record initial starting capital in ledger
             tx_id = f"tx_init_{uuid.uuid4().hex[:8]}"
             conn.execute(
                 """INSERT INTO ledger (id, day, category, amount, balance_after, reference_id, description)
                    VALUES (?, 1, 'EQUITY_INJECTION', ?, ?, NULL, 'Initial Seed Capital');""",
-                (tx_id, starting_cash, starting_cash)
+                (tx_id, effective_cash, effective_cash)
             )
 
             # Seed default product
@@ -72,20 +114,28 @@ class SimulationEngine:
                    VALUES ('seg_sme', 'SME Hardware Integrators', 25, 0.015, 0.8, 1.2);"""
             )
 
+            # Seed a starting engineer employee
+            conn.execute(
+                """INSERT INTO employees (id, name, role, department, daily_wage, productivity, morale, hired_day, status)
+                   VALUES ('emp_001', 'Alex Chen', 'ENGINEER', 'PRODUCTION', 18.0, 1.1, 80.0, 1, 'ACTIVE');"""
+            )
+
             # Log startup event
             conn.execute(
                 """INSERT INTO activity_log (day, category, severity, message, details_json)
                    VALUES (1, 'SYSTEM', 'SUCCESS', ?, NULL);""",
-                (f"Company '{company_name}' incorporated with {starting_cash:.2f} credits in starting capital.",)
+                (f"Company '{company_name}' incorporated | {effective_cash:.0f} cr | Mode: {mode} | Difficulty: {difficulty}",)
             )
 
             # Record initial day 1 baseline snapshot
+            inv_val = 20 * initial_product_cost
             conn.execute(
                 """INSERT INTO daily_snapshots (
                     day, cash_balance, revenue, cogs, operating_expenses, net_profit,
-                    total_units_sold, unmet_demand, reputation, inventory_value, total_valuation
-                ) VALUES (1, ?, 0.0, 0.0, 0.0, 0.0, 0, 0, 50.0, ?, ?);""",
-                (starting_cash, 20 * initial_product_cost, starting_cash + (20 * initial_product_cost))
+                    total_units_sold, unmet_demand, reputation, inventory_value, total_valuation,
+                    wages_paid, marketing_spend, rd_spend, headcount, distress_stage
+                ) VALUES (1, ?, 0.0, 0.0, 0.0, 0.0, 0, 0, 50.0, ?, ?, 0.0, 0.0, 0.0, 1, 'HEALTHY');""",
+                (effective_cash, inv_val, effective_cash + inv_val)
             )
         conn.close()
 
@@ -137,22 +187,96 @@ class SimulationEngine:
         raw_demand = base_demand * elasticity_factor * quality_factor * rep_factor * random_market_noise
         return max(0, int(round(raw_demand)))
 
+    def _get_settings_multipliers(self, conn: sqlite3.Connection) -> Dict[str, float]:
+        """Loads difficulty multipliers from game_settings; returns normal defaults if missing."""
+        row = conn.execute("SELECT * FROM game_settings WHERE id = 1;").fetchone()
+        if not row:
+            return {"demand": 1.0, "cost": 1.0, "event_freq": 1.0}
+        return {
+            "demand": float(row["demand_multiplier"]),
+            "cost":   float(row["cost_multiplier"]),
+            "event_freq": float(row["event_frequency_multiplier"]),
+        }
+
+    def _classify_distress(self, cash: float) -> str:
+        """Returns the financial distress stage based on cash balance."""
+        if cash > 500:
+            return "HEALTHY"
+        elif cash > 200:
+            return "WATCH"
+        elif cash > 50:
+            return "DISTRESS"
+        else:
+            return "CRITICAL"
+
+    def _check_win_loss(self, conn: sqlite3.Connection, day: int, cash: float, valuation: float) -> None:
+        """Evaluates campaign win/loss conditions and marks game_state accordingly."""
+        row = conn.execute("SELECT * FROM game_settings WHERE id = 1;").fetchone()
+        if not row or row["mode"] != "campaign" or row["game_state"] != "RUNNING":
+            return
+
+        goal = row["campaign_goal"]
+        target = float(row["campaign_target_value"])
+        deadline = int(row["campaign_deadline_days"])
+
+        # Loss conditions
+        if cash <= 0:
+            conn.execute(
+                "UPDATE game_settings SET game_state='LOST', win_loss_reason=? WHERE id=1;",
+                ("Company became insolvent — cash balance reached zero.",)
+            )
+            conn.execute(
+                "INSERT INTO activity_log (day,category,severity,message) VALUES (?,?,?,?);",
+                (day, "SYSTEM", "DANGER", "GAME OVER: Insolvency. Cash balance reached zero.")
+            )
+            return
+
+        if day >= deadline and row["game_state"] == "RUNNING":
+            # Check win before declaring deadline loss
+            achieved = (goal == "VALUATION_TARGET" and valuation >= target) or \
+                       (goal == "CASH_TARGET" and cash >= target)
+            if not achieved:
+                conn.execute(
+                    "UPDATE game_settings SET game_state='LOST', win_loss_reason=? WHERE id=1;",
+                    (f"Deadline reached on day {deadline} without achieving {goal} target of {target:.0f}.",)
+                )
+                conn.execute(
+                    "INSERT INTO activity_log (day,category,severity,message) VALUES (?,?,?,?);",
+                    (day, "SYSTEM", "DANGER", f"GAME OVER: Deadline exceeded. Target was {target:.0f}.")
+                )
+                return
+
+        # Win condition
+        achieved = (goal == "VALUATION_TARGET" and valuation >= target) or \
+                   (goal == "CASH_TARGET" and cash >= target)
+        if achieved:
+            conn.execute(
+                "UPDATE game_settings SET game_state='WON', win_loss_reason=? WHERE id=1;",
+                (f"Achieved {goal} of {target:.0f} on day {day}!",)
+            )
+            conn.execute(
+                "INSERT INTO activity_log (day,category,severity,message) VALUES (?,?,?,?);",
+                (day, "SYSTEM", "SUCCESS", f"VICTORY: {goal} target of {target:.0f} reached on day {day}!")
+            )
+
     def advance_day(self) -> Dict[str, Any]:
         """
         Executes a single simulation day in strict, deterministic order:
         1. Check clock and increment day.
-        2. Production: Enforce cash constraint and produce inventory up to target.
-        3. Market demand & Sales: Convert demand limited by actual inventory.
-        4. Deliveries & Revenue: Record revenue from completed sales in ledger.
-        5. Expenses: Pay fixed OPEX and wages.
-        6. Inventory & Snapshot: Calculate inventory valuation, write snapshot.
-        7. Insolvency check and log alerts.
+        2. Wages: Pay all active employees.
+        3. Loan servicing: Pay daily interest + repayment on active loans.
+        4. R&D: Advance active projects, apply quality gains on completion.
+        5. Marketing: Compute demand boost from active campaigns, deduct spend.
+        6. Production: Enforce cash constraint and produce inventory up to target.
+        7. Market demand & Sales: Convert demand (with marketing + difficulty boosts).
+        8. Expenses: Pay fixed OPEX.
+        9. Reputation dynamics.
+        10. Financial snapshot, distress classification, win/loss check.
         """
         conn = get_db_connection(self.db_path)
         with conn:
             clock_row = conn.execute("SELECT current_day FROM game_clock WHERE id = 1;").fetchone()
             if not clock_row:
-                # If no game exists, initialize default
                 self.create_new_game()
                 current_day = 1
             else:
@@ -162,31 +286,146 @@ class SimulationEngine:
                     (current_day,)
                 )
 
+            mults = self._get_settings_multipliers(conn)
+            cost_mult = mults["cost"]
+            demand_mult = mults["demand"]
+
             comp_row = conn.execute("SELECT reputation, name FROM company WHERE id = 'comp_001';").fetchone()
             reputation = comp_row["reputation"] if comp_row else 50.0
 
-            # 1. Production Phase
+            # ---- 1. WAGES ---------------------------------------------------
+            active_employees = conn.execute(
+                "SELECT * FROM employees WHERE status = 'ACTIVE';"
+            ).fetchall()
+            headcount = len(active_employees)
+            total_wages_today = 0.0
+            for emp in active_employees:
+                wage = round(emp["daily_wage"] * cost_mult, 2)
+                total_wages_today += wage
+            if total_wages_today > 0:
+                self.record_transaction(
+                    conn=conn, day=current_day, category="WAGES",
+                    amount=-total_wages_today,
+                    description=f"Daily wages for {headcount} employee(s)"
+                )
+
+            # ---- 2. LOAN SERVICING ------------------------------------------
+            active_loans = conn.execute(
+                "SELECT * FROM loans WHERE status = 'ACTIVE';"
+            ).fetchall()
+            total_loan_cost_today = 0.0
+            for loan in active_loans:
+                interest = round(loan["outstanding_balance"] * loan["daily_interest_rate"], 2)
+                repayment = round(loan["daily_repayment"], 2)
+                payment = interest + repayment
+                new_balance = round(loan["outstanding_balance"] - repayment, 2)
+                total_loan_cost_today += payment
+                if payment > 0:
+                    self.record_transaction(
+                        conn=conn, day=current_day, category="LOAN_REPAYMENT",
+                        amount=-payment,
+                        description=f"Loan {loan['id']}: {interest:.2f} interest + {repayment:.2f} principal",
+                        reference_id=loan["id"]
+                    )
+                if new_balance <= 0:
+                    conn.execute("UPDATE loans SET outstanding_balance=0, status='REPAID' WHERE id=?;", (loan["id"],))
+                    conn.execute(
+                        "INSERT INTO activity_log (day,category,severity,message) VALUES (?,?,?,?);",
+                        (current_day, "FINANCE", "SUCCESS", f"Loan {loan['id']} fully repaid!")
+                    )
+                else:
+                    conn.execute("UPDATE loans SET outstanding_balance=? WHERE id=?;", (new_balance, loan["id"]))
+
+            # ---- 3. R&D PROJECTS --------------------------------------------
+            total_rd_spend_today = 0.0
+            active_rd = conn.execute(
+                "SELECT * FROM rd_projects WHERE status = 'ACTIVE';"
+            ).fetchall()
+            for proj in active_rd:
+                rd_cost = round(proj["daily_budget"] * cost_mult, 2)
+                current_cash_check = self.get_current_cash(conn)
+                if current_cash_check < rd_cost:
+                    conn.execute(
+                        "INSERT INTO activity_log (day,category,severity,message) VALUES (?,?,?,?);",
+                        (current_day, "RESEARCH", "WARNING", f"R&D project '{proj['name']}' paused: insufficient cash.")
+                    )
+                    continue
+                self.record_transaction(
+                    conn=conn, day=current_day, category="RD",
+                    amount=-rd_cost,
+                    description=f"R&D: {proj['name']}",
+                    reference_id=proj["id"]
+                )
+                total_rd_spend_today += rd_cost
+                # Progress: each 100cr = ~1% progress (normalized to 100)
+                progress_gain = min(rd_cost / 100.0, 2.0)
+                new_progress = min(100.0, proj["progress"] + progress_gain)
+                if new_progress >= 100.0 and proj["target_product_id"]:
+                    # Apply quality gain to target product
+                    gain = proj["target_quality_gain"]
+                    conn.execute(
+                        "UPDATE products SET quality = MIN(100.0, quality + ?) WHERE id = ?;",
+                        (gain, proj["target_product_id"])
+                    )
+                    conn.execute(
+                        "UPDATE rd_projects SET progress=100.0, status='COMPLETED', completed_day=? WHERE id=?;",
+                        (current_day, proj["id"])
+                    )
+                    conn.execute(
+                        "INSERT INTO activity_log (day,category,severity,message) VALUES (?,?,?,?);",
+                        (current_day, "RESEARCH", "SUCCESS",
+                         f"R&D Complete: '{proj['name']}' raised product quality by +{gain:.0f} pts.")
+                    )
+                else:
+                    conn.execute(
+                        "UPDATE rd_projects SET progress=? WHERE id=?;",
+                        (new_progress, proj["id"])
+                    )
+
+            # ---- 4. MARKETING DEMAND BOOST ----------------------------------
+            total_marketing_spend_today = 0.0
+            marketing_demand_boost = 1.0  # multiplicative
+            active_campaigns = conn.execute(
+                "SELECT * FROM marketing_campaigns WHERE status = 'ACTIVE';"
+            ).fetchall()
+            for camp in active_campaigns:
+                mkt_cost = round(camp["daily_budget"] * cost_mult, 2)
+                current_cash_check = self.get_current_cash(conn)
+                if current_cash_check < mkt_cost:
+                    conn.execute(
+                        "INSERT INTO activity_log (day,category,severity,message) VALUES (?,?,?,?);",
+                        (current_day, "MARKETING", "WARNING", f"Campaign '{camp['name']}' paused: insufficient cash.")
+                    )
+                    continue
+                self.record_transaction(
+                    conn=conn, day=current_day, category="MARKETING",
+                    amount=-mkt_cost,
+                    description=f"Marketing: {camp['name']} ({camp['channel']})",
+                    reference_id=camp["id"]
+                )
+                total_marketing_spend_today += mkt_cost
+                # Each campaign contributes a small additive demand boost (+2-5%)
+                boost = 0.02 * camp["effectiveness_multiplier"]
+                marketing_demand_boost += boost
+
+            # ---- 5. PRODUCTION PHASE ----------------------------------------
             active_products = conn.execute(
                 "SELECT * FROM products WHERE status = 'ACTIVE';"
             ).fetchall()
-
             total_cogs_today = 0.0
             for prod in active_products:
                 prod_id = prod["id"]
                 target = prod["daily_production_target"]
-                unit_cost = prod["production_cost"]
+                unit_cost = round(prod["production_cost"] * cost_mult, 4)
                 current_cash = self.get_current_cash(conn)
 
-                # Cannot produce without cash
                 max_affordable = max(0, int(current_cash // unit_cost)) if unit_cost > 0 else target
                 actual_production = min(target, max_affordable)
-                prod_expense = actual_production * unit_cost
+                prod_expense = round(actual_production * unit_cost, 2)
 
                 if prod_expense > 0:
                     self.record_transaction(
-                        conn=conn,
-                        day=current_day,
-                        category="COGS",
+                        conn=conn, day=current_day, category="COGS",
                         amount=-prod_expense,
                         description=f"Manufactured {actual_production} units of {prod['name']}",
                         reference_id=prod_id
@@ -201,17 +440,13 @@ class SimulationEngine:
                     )
 
                 new_inv = prod["inventory_units"] + actual_production
-                conn.execute(
-                    "UPDATE products SET inventory_units = ? WHERE id = ?;",
-                    (new_inv, prod_id)
-                )
+                conn.execute("UPDATE products SET inventory_units = ? WHERE id = ?;", (new_inv, prod_id))
 
-            # 2. Demand & Sales Phase
+            # ---- 6. DEMAND & SALES PHASE ------------------------------------
             total_revenue_today = 0.0
             total_units_sold_today = 0
             total_unmet_demand_today = 0
 
-            # Re-read products with updated inventory
             products_for_sales = conn.execute(
                 "SELECT * FROM products WHERE status = 'ACTIVE';"
             ).fetchall()
@@ -223,12 +458,11 @@ class SimulationEngine:
                 quality = prod["quality"]
                 inv = prod["inventory_units"]
 
-                calculated_demand = self.calculate_product_demand(
-                    price=price,
-                    cost=cost,
-                    quality=quality,
-                    reputation=reputation
+                base_demand = self.calculate_product_demand(
+                    price=price, cost=cost, quality=quality, reputation=reputation
                 )
+                # Apply difficulty demand multiplier and marketing boost
+                calculated_demand = max(0, int(round(base_demand * demand_mult * marketing_demand_boost)))
 
                 actual_sales = min(calculated_demand, inv)
                 unmet = max(0, calculated_demand - actual_sales)
@@ -236,9 +470,7 @@ class SimulationEngine:
 
                 if actual_sales > 0:
                     self.record_transaction(
-                        conn=conn,
-                        day=current_day,
-                        category="REVENUE",
+                        conn=conn, day=current_day, category="REVENUE",
                         amount=revenue,
                         description=f"Sold {actual_sales} units of {prod['name']} @ {price:.2f}",
                         reference_id=prod_id
@@ -270,60 +502,73 @@ class SimulationEngine:
                         (current_day, f"Stockout: missed {unmet} potential sales for {prod['name']}.")
                     )
 
-            # 3. Fixed Operating Expenses (Facilities, minimal administrative software)
-            fixed_opex = 50.0
+            # ---- 7. FIXED OPERATING EXPENSES --------------------------------
+            fixed_opex = round(50.0 * cost_mult, 2)
             self.record_transaction(
-                conn=conn,
-                day=current_day,
-                category="OPEX",
+                conn=conn, day=current_day, category="OPEX",
                 amount=-fixed_opex,
                 description="Daily facility rent, utilities, and administrative overhead"
             )
 
-            # 4. Reputation dynamics
+            # ---- 8. REPUTATION DYNAMICS ------------------------------------
             rep_delta = 0.0
             if total_unmet_demand_today > 10:
                 rep_delta -= 0.5
             elif total_units_sold_today > 10 and total_unmet_demand_today == 0:
                 rep_delta += 0.3
+            # Distress-stage reputation penalty
+            distress = self._classify_distress(self.get_current_cash(conn))
+            if distress == "DISTRESS":
+                rep_delta -= 0.2
+            elif distress == "CRITICAL":
+                rep_delta -= 0.5
             new_reputation = max(10.0, min(100.0, reputation + rep_delta))
             conn.execute("UPDATE company SET reputation = ? WHERE id = 'comp_001';", (new_reputation,))
 
-            # 5. Financial Snapshot & Balance
+            # ---- 9. FINANCIAL SNAPSHOT --------------------------------------
             ending_cash = self.get_current_cash(conn)
             total_opex = fixed_opex
-            net_profit = total_revenue_today - (total_cogs_today + total_opex)
+            net_profit = total_revenue_today - (total_cogs_today + total_opex + total_wages_today + total_marketing_spend_today + total_rd_spend_today)
 
-            # Inventory asset valuation
             inv_rows = conn.execute("SELECT inventory_units, production_cost FROM products;").fetchall()
             inventory_val = sum(r["inventory_units"] * r["production_cost"] for r in inv_rows)
             company_valuation = max(0.0, ending_cash + inventory_val + (new_reputation * 100))
 
+            distress_stage = self._classify_distress(ending_cash)
+
             conn.execute(
                 """INSERT INTO daily_snapshots (
                     day, cash_balance, revenue, cogs, operating_expenses, net_profit,
-                    total_units_sold, unmet_demand, reputation, inventory_value, total_valuation
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);""",
+                    total_units_sold, unmet_demand, reputation, inventory_value, total_valuation,
+                    wages_paid, marketing_spend, rd_spend, headcount, distress_stage
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);""",
                 (
                     current_day, ending_cash, total_revenue_today, total_cogs_today,
                     total_opex, net_profit, total_units_sold_today,
-                    total_unmet_demand_today, new_reputation, inventory_val, company_valuation
+                    total_unmet_demand_today, new_reputation, inventory_val, company_valuation,
+                    total_wages_today, total_marketing_spend_today, total_rd_spend_today,
+                    headcount, distress_stage
                 )
             )
 
-            # 6. Solvency warnings
-            if ending_cash < 500.0 and ending_cash > 0:
+            # ---- 10. DISTRESS ALERTS & WIN/LOSS EVALUATION ------------------
+            if distress_stage == "WATCH":
                 conn.execute(
-                    """INSERT INTO activity_log (day, category, severity, message)
-                       VALUES (?, 'FINANCE', 'DANGER', ?);""",
-                    (current_day, f"CRITICAL: Liquidity warning! Cash reserves down to {ending_cash:.2f} credits.")
+                    "INSERT INTO activity_log (day,category,severity,message) VALUES (?,?,?,?);",
+                    (current_day, "FINANCE", "WARNING", f"Liquidity Watch: Cash at {ending_cash:.2f} cr — monitor expenses.")
                 )
-            elif ending_cash <= 0:
+            elif distress_stage == "DISTRESS":
                 conn.execute(
-                    """INSERT INTO activity_log (day, category, severity, message)
-                       VALUES (?, 'FINANCE', 'DANGER', ?);""",
-                    (current_day, "INSOLVENCY ALERT: Company cash balance is negative or zero! Trading at severe financial risk.")
+                    "INSERT INTO activity_log (day,category,severity,message) VALUES (?,?,?,?);",
+                    (current_day, "FINANCE", "DANGER", f"Financial Distress: Cash critically low at {ending_cash:.2f} cr!")
                 )
+            elif distress_stage == "CRITICAL":
+                conn.execute(
+                    "INSERT INTO activity_log (day,category,severity,message) VALUES (?,?,?,?);",
+                    (current_day, "FINANCE", "DANGER", f"CRITICAL INSOLVENCY RISK: Cash = {ending_cash:.2f} cr. Immediate action required!")
+                )
+
+            self._check_win_loss(conn, current_day, ending_cash, company_valuation)
 
         conn.close()
 
@@ -336,7 +581,11 @@ class SimulationEngine:
             "net_profit": net_profit,
             "units_sold": total_units_sold_today,
             "unmet_demand": total_unmet_demand_today,
-            "reputation": new_reputation
+            "reputation": new_reputation,
+            "wages": total_wages_today,
+            "marketing_spend": total_marketing_spend_today,
+            "rd_spend": total_rd_spend_today,
+            "distress_stage": distress_stage,
         }
 
     def get_full_state(self) -> Dict[str, Any]:
@@ -350,6 +599,11 @@ class SimulationEngine:
         transactions = conn.execute("SELECT * FROM ledger ORDER BY rowid DESC LIMIT 30;").fetchall()
         activities = conn.execute("SELECT * FROM activity_log ORDER BY id DESC LIMIT 50;").fetchall()
         ai_decisions = conn.execute("SELECT * FROM ai_decisions ORDER BY created_at DESC, rowid DESC LIMIT 20;").fetchall()
+        employees = conn.execute("SELECT * FROM employees WHERE status = 'ACTIVE';").fetchall()
+        loans = conn.execute("SELECT * FROM loans WHERE status = 'ACTIVE';").fetchall()
+        campaigns = conn.execute("SELECT * FROM marketing_campaigns WHERE status = 'ACTIVE';").fetchall()
+        rd_projects = conn.execute("SELECT * FROM rd_projects WHERE status != 'CANCELLED';").fetchall()
+        settings = conn.execute("SELECT * FROM game_settings WHERE id = 1;").fetchone()
 
         current_cash = self.get_current_cash(conn)
         conn.close()
@@ -368,6 +622,11 @@ class SimulationEngine:
             "recent_transactions": [dict(t) for t in transactions],
             "recent_activities": [dict(a) for a in activities],
             "ai_decisions": [dict(d) for d in ai_decisions],
+            "employees": [dict(e) for e in employees],
+            "active_loans": [dict(l) for l in loans],
+            "active_campaigns": [dict(c) for c in campaigns],
+            "rd_projects": [dict(r) for r in rd_projects],
+            "game_settings": dict(settings) if settings else {"mode": "sandbox", "difficulty": "normal", "game_state": "RUNNING"},
             "daily_fixed_opex": 50.0
         }
 

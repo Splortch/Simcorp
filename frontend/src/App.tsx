@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import type { FullGameState } from './types';
+import type { FullGameState, AIAgent, AITask } from './types';
 import { TopBar } from './components/TopBar';
 import { ProductManager } from './components/ProductManager';
 import { FinancialCharts } from './components/FinancialCharts';
@@ -7,6 +7,8 @@ import { ActivityAndLedger } from './components/ActivityAndLedger';
 import { AIManagerPanel } from './components/AIManagerPanel';
 import { AISettingsModal } from './components/AISettingsModal';
 import { NewGameModal } from './components/NewGameModal';
+import { AgentsTab } from './components/AgentsTab';
+import { CreateTaskModal } from './components/CreateTaskModal';
 import {
   TrendingUp,
   DollarSign,
@@ -14,16 +16,51 @@ import {
   Layers,
   AlertCircle,
   HelpCircle,
-  RefreshCw
+  RefreshCw,
+  LayoutDashboard,
+  Users,
+  Boxes,
+  Receipt
 } from 'lucide-react';
 
 export const App: React.FC = () => {
   const [gameState, setGameState] = useState<FullGameState | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'overview' | 'agents' | 'operations' | 'ledger'>('overview');
+  
+  // AI Workforce State
+  const [agents, setAgents] = useState<AIAgent[]>([]);
+  const [tasks, setTasks] = useState<AITask[]>([]);
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  const [showCreateTaskModal, setShowCreateTaskModal] = useState(false);
+
+  // Modals
   const [showNewGameModal, setShowNewGameModal] = useState(false);
   const [showAISettings, setShowAISettings] = useState(false);
   const [showTutorial, setShowTutorial] = useState(false);
+
+  const fetchWorkforce = useCallback(async () => {
+    try {
+      const [agentsRes, tasksRes] = await Promise.all([
+        fetch('/api/ai/agents'),
+        fetch('/api/ai/tasks')
+      ]);
+      if (agentsRes.ok) {
+        const agentData: AIAgent[] = await agentsRes.json();
+        setAgents(agentData);
+        if (!selectedAgentId && agentData.length > 0) {
+          setSelectedAgentId(agentData[0].id);
+        }
+      }
+      if (tasksRes.ok) {
+        const taskData: AITask[] = await tasksRes.json();
+        setTasks(taskData);
+      }
+    } catch (err) {
+      console.error('Failed to load AI workforce:', err);
+    }
+  }, [selectedAgentId]);
 
   const handleTriggerAIReview = async () => {
     try {
@@ -32,6 +69,24 @@ export const App: React.FC = () => {
     } catch (err) {
       console.error(err);
     }
+  };
+
+  const handleTriggerWorkCycle = async () => {
+    try {
+      await fetch('/api/ai/workforce/cycle', { method: 'POST' });
+      await Promise.all([fetchState(), fetchWorkforce()]);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleAssignTask = async (taskData: any) => {
+    await fetch('/api/ai/tasks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(taskData)
+    });
+    await fetchWorkforce();
   };
 
   const handleApproveAIDecision = async (id: string) => {
@@ -72,9 +127,13 @@ export const App: React.FC = () => {
   // Poll state every 1.5 seconds to reflect clock ticks and background steps
   useEffect(() => {
     fetchState();
-    const interval = setInterval(fetchState, 1500);
+    fetchWorkforce();
+    const interval = setInterval(() => {
+      fetchState();
+      fetchWorkforce();
+    }, 1500);
     return () => clearInterval(interval);
-  }, [fetchState]);
+  }, [fetchState, fetchWorkforce]);
 
   const handleControlClock = async (action: string, speed?: number) => {
     try {
@@ -110,6 +169,7 @@ export const App: React.FC = () => {
         body: JSON.stringify(gameData)
       });
       await fetchState();
+      await fetchWorkforce();
     } catch (err) {
       console.error(err);
     }
@@ -161,6 +221,55 @@ export const App: React.FC = () => {
         />
       )}
 
+      {/* Primary Navigation Bar */}
+      <div className="border-b border-slate-800/80 bg-slate-950/70 backdrop-blur-md sticky top-[61px] z-40">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 flex items-center gap-2">
+          <button
+            onClick={() => setActiveTab('overview')}
+            className={`flex items-center gap-2 py-3 px-4 border-b-2 text-xs font-bold transition ${
+              activeTab === 'overview'
+                ? 'border-indigo-500 text-indigo-400 bg-indigo-950/20'
+                : 'border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-700'
+            }`}
+          >
+            <LayoutDashboard className="w-4 h-4" /> Overview & Financials
+          </button>
+
+          <button
+            onClick={() => setActiveTab('agents')}
+            className={`flex items-center gap-2 py-3 px-4 border-b-2 text-xs font-bold transition ${
+              activeTab === 'agents'
+                ? 'border-indigo-500 text-indigo-400 bg-indigo-950/20'
+                : 'border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-700'
+            }`}
+          >
+            <Users className="w-4 h-4" /> AI Workforce & Agents ({agents.length})
+          </button>
+
+          <button
+            onClick={() => setActiveTab('operations')}
+            className={`flex items-center gap-2 py-3 px-4 border-b-2 text-xs font-bold transition ${
+              activeTab === 'operations'
+                ? 'border-indigo-500 text-indigo-400 bg-indigo-950/20'
+                : 'border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-700'
+            }`}
+          >
+            <Boxes className="w-4 h-4" /> Products & Operations
+          </button>
+
+          <button
+            onClick={() => setActiveTab('ledger')}
+            className={`flex items-center gap-2 py-3 px-4 border-b-2 text-xs font-bold transition ${
+              activeTab === 'ledger'
+                ? 'border-indigo-500 text-indigo-400 bg-indigo-950/20'
+                : 'border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-700'
+            }`}
+          >
+            <Receipt className="w-4 h-4" /> Ledger & System Logs
+          </button>
+        </div>
+      </div>
+
       {/* Main Content Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 space-y-6">
         {/* Onboarding / Tutorial Banner */}
@@ -171,9 +280,8 @@ export const App: React.FC = () => {
               <div className="text-xs space-y-1">
                 <span className="font-bold text-indigo-200 block text-sm">Welcome to SimCorp Executive Dashboard</span>
                 <p className="text-slate-300 leading-relaxed">
-                  You are running an autonomous commercial enterprise. The simulation clock advances day by day in discrete turns.
-                  Each day, your factory consumes cash to manufacture inventory according to your target. Customer demand then buys available stock,
-                  generating real ledger revenue. Keep cash reserves healthy to cover daily facility overhead (50 cr/day) and manufacturing costs.
+                  You are running an autonomous commercial enterprise. Inspect the dedicated AI Workforce & Agents tab to explore
+                  the multi-tier org hierarchy (CEO &rarr; Department Managers &rarr; Specialists), assign tasks, and monitor reviews and deliverables.
                 </p>
               </div>
             </div>
@@ -245,32 +353,42 @@ export const App: React.FC = () => {
           </div>
         </div>
 
-        {/* Charts Section */}
-        {gameState && (
-          <FinancialCharts snapshots={gameState.historical_snapshots} />
+        {/* Tab 1: Overview & Financials */}
+        {activeTab === 'overview' && gameState && (
+          <div className="space-y-6">
+            <FinancialCharts snapshots={gameState.historical_snapshots} />
+            <AIManagerPanel
+              decisions={gameState.ai_decisions || []}
+              onTriggerReview={handleTriggerAIReview}
+              onApprove={handleApproveAIDecision}
+              onReject={handleRejectAIDecision}
+              onOpenSettings={() => setShowAISettings(true)}
+            />
+          </div>
         )}
 
-        {/* Product Portfolio & Operational Management */}
-        {gameState && (
+        {/* Tab 2: Dedicated Agents Tab */}
+        {activeTab === 'agents' && (
+          <AgentsTab
+            agents={agents}
+            tasks={tasks}
+            selectedAgentId={selectedAgentId}
+            onSelectAgent={setSelectedAgentId}
+            onTriggerCycle={handleTriggerWorkCycle}
+            onCreateTaskModal={() => setShowCreateTaskModal(true)}
+          />
+        )}
+
+        {/* Tab 3: Products & Operations */}
+        {activeTab === 'operations' && gameState && (
           <ProductManager
             products={gameState.products}
             onUpdateProduct={handleUpdateProduct}
           />
         )}
 
-        {/* Autonomous AI Management Panel */}
-        {gameState && (
-          <AIManagerPanel
-            decisions={gameState.ai_decisions || []}
-            onTriggerReview={handleTriggerAIReview}
-            onApprove={handleApproveAIDecision}
-            onReject={handleRejectAIDecision}
-            onOpenSettings={() => setShowAISettings(true)}
-          />
-        )}
-
-        {/* Authoritative Ledger & Activity Feed */}
-        {gameState && (
+        {/* Tab 4: Authoritative Ledger & Activity Feed */}
+        {activeTab === 'ledger' && gameState && (
           <ActivityAndLedger
             transactions={gameState.recent_transactions}
             activities={gameState.recent_activities}
@@ -280,7 +398,7 @@ export const App: React.FC = () => {
 
       {/* Footer / Status bar */}
       <footer className="border-t border-slate-800/80 py-3 px-6 bg-slate-950/60 text-xs text-slate-500 flex items-center justify-between">
-        <div>SimCorp Business Simulation Engine • Milestone 1 & 3 Active</div>
+        <div>SimCorp AI Workforce Management System • Level 0-2 Active</div>
         <div className="flex items-center gap-4">
           <button onClick={() => setShowAISettings(true)} className="hover:text-slate-300">AI Config</button>
           <button onClick={() => setShowTutorial(true)} className="hover:text-slate-300">Quick Guide</button>
@@ -300,8 +418,17 @@ export const App: React.FC = () => {
         isOpen={showAISettings}
         onClose={() => setShowAISettings(false)}
       />
+
+      {/* Create Task Modal */}
+      <CreateTaskModal
+        isOpen={showCreateTaskModal}
+        onClose={() => setShowCreateTaskModal(false)}
+        agents={agents}
+        onSubmit={handleAssignTask}
+      />
     </div>
   );
 };
 
 export default App;
+

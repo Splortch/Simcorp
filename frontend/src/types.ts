@@ -94,15 +94,136 @@ export interface AIHealthStatus {
   error_message?: string;
 }
 
+export interface Employee {
+  id: string;
+  name: string;
+  role: string;
+  department: string;
+  daily_wage: number;
+  productivity: number;
+  morale: number;
+  hired_day: number;
+  status: string;
+}
+
+export interface Loan {
+  id: string;
+  principal: number;
+  remaining_principal: number;
+  interest_rate: number;
+  daily_payment: number;
+  term_days: number;
+  start_day: number;
+  status: string;
+}
+
+export interface MarketingCampaign {
+  id: string;
+  name: string;
+  target_product_id?: string;
+  daily_budget: number;
+  remaining_days: number;
+  effectiveness: number;
+  status: string;
+}
+
+export interface RdProject {
+  id: string;
+  name: string;
+  target_product_id: string;
+  cost_per_day: number;
+  days_remaining: number;
+  total_days: number;
+  quality_boost: number;
+  status: string;
+}
+
+export interface GameSettings {
+  mode: string;
+  difficulty: string;
+  campaign_goal?: string;
+  campaign_target_value?: number;
+  campaign_deadline_days?: number;
+  game_state: string;
+  win_loss_reason?: string;
+}
+
 export interface FullGameState {
   company: CompanyState;
   clock: GameClock;
   cash_balance: number;
+  company_valuation: number;
+  current_day: number;
   products: Product[];
   latest_snapshot: DailySnapshot | null;
   historical_snapshots: DailySnapshot[];
   recent_transactions: LedgerEntry[];
   recent_activities: ActivityLogItem[];
   ai_decisions: AIDecisionRecord[];
+  employees: Employee[];
+  active_loans: Loan[];
+  active_campaigns: MarketingCampaign[];
+  rd_projects: RdProject[];
+  game_settings: GameSettings;
   daily_fixed_opex: number;
+}
+export interface AIAgent {
+  id: string;
+  name: string;
+  title: string;
+  department: string;
+  level: number;
+  supervisor_id?: string | null;
+  specialization: string;
+  allowed_tasks: string[];
+  permissions: Record<string, boolean>;
+  current_status: 'IDLE' | 'ANALYZING' | 'WORKING' | 'AWAITING_REVIEW' | 'AWAITING_APPROVAL' | 'BLOCKED' | 'OFFLINE';
+  current_objective: string;
+  performance_score: number;
+  tasks_completed: number;
+  tasks_failed: number;
+}
+
+export interface AITask {
+  id: string;
+  title: string;
+  description: string;
+  department: string;
+  task_type: string;
+  assigned_agent_id: string;
+  supervisor_id: string;
+  priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
+  status: 'ASSIGNED' | 'IN_PROGRESS' | 'AWAITING_REVIEW' | 'REVISION_REQUESTED' | 'AWAITING_APPROVAL' | 'COMPLETED' | 'FAILED' | 'BLOCKED' | 'CANCELLED';
+  created_day: number;
+  deadline_day: number;
+  deliverable?: any;
+  recommendation_action?: any;
+  review_status: string;
+  review_feedback?: string;
+  revision_count: number;
+  blocked_reason?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface AITaskReview {
+  id: string;
+  task_id: string;
+  reviewer_agent_id: string;
+  decision: 'APPROVED' | 'REVISION_REQUESTED' | 'ESCALATED' | 'REJECTED';
+  feedback: string;
+  score: number;
+  day: number;
+  created_at?: string;
+}
+
+export interface WorkOverview {
+  tasks_in_progress: number;
+  awaiting_review: number;
+  awaiting_approval: number;
+  blocked: number;
+  completed: number;
+  failed: number;
+  status_counts: Record<string, number>;
+  recent_reviews: AITaskReview[];
 }
