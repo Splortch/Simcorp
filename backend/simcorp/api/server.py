@@ -404,8 +404,14 @@ if frontend_dist_dir.exists():
 
     @app.get("/{full_path:path}")
     def serve_spa(full_path: str):
-        file_path = frontend_dist_dir / full_path
+        base_dir = frontend_dist_dir.resolve()
+        file_path = (frontend_dist_dir / full_path).resolve()
+        try:
+            file_path.relative_to(base_dir)
+        except ValueError:
+            return FileResponse(base_dir / "index.html")
+
         if file_path.is_file():
             return FileResponse(file_path)
-        return FileResponse(frontend_dist_dir / "index.html")
+        return FileResponse(base_dir / "index.html")
 
