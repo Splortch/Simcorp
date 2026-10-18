@@ -35,7 +35,7 @@ class AIConfigModel(BaseModel):
     model_id: str = "google/gemma-4-e4b"
     autonomy_mode: Literal["autonomous", "oversight", "player_approval"] = "autonomous"
     review_frequency_days: int = Field(default=2, ge=1, le=10)
-    timeout_seconds: float = Field(default=8.0, gt=1.0, le=60.0)
+    timeout_seconds: float = Field(default=45.0, gt=1.0, le=180.0)
 
 class AIHealthStatus(BaseModel):
     connected: bool

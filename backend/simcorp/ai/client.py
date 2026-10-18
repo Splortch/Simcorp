@@ -52,7 +52,7 @@ class LMStudioClient:
                 {"role": "user", "content": user_prompt}
             ],
             "temperature": 0.2,
-            "max_tokens": 800
+            "max_tokens": 1200
         }
 
         try:
@@ -63,7 +63,12 @@ class LMStudioClient:
                     return None
 
                 response_json = res.json()
-                content = response_json["choices"][0]["message"]["content"]
+                msg = response_json["choices"][0]["message"]
+                content = msg.get("content") or ""
+                # Some reasoning models place response or partial text in reasoning_content
+                if not content and "reasoning_content" in msg:
+                    content = msg["reasoning_content"]
+
                 return self._parse_json_proposal(content)
         except Exception as e:
             print(f"[LM Studio Request Failed]: {e}")

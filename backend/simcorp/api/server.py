@@ -18,7 +18,8 @@ from simcorp.ai.orchestrator import AIOrchestrator
 from simcorp.ai.client import LMStudioClient
 from simcorp.models.ai_schemas import AIConfigModel, AIHealthStatus
 
-DB_PATH = Path("simcorp.db")
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+DB_PATH = PROJECT_ROOT / "simcorp.db"
 engine = SimulationEngine(db_path=DB_PATH)
 ai_orchestrator = AIOrchestrator(db_path=str(DB_PATH))
 

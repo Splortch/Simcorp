@@ -36,7 +36,7 @@ class AIOrchestrator:
                 model_id="google/gemma-4-e4b",
                 autonomy_mode="autonomous",
                 review_frequency_days=2,
-                timeout_seconds=8.0
+                timeout_seconds=45.0
             )
         return AIConfigModel(
             enabled=bool(row["enabled"]),
@@ -89,7 +89,7 @@ class AIOrchestrator:
 
         client = LMStudioClient(cfg)
         snapshot_context = generate_context_snapshot(state)
-        user_prompt = f"Current corporate state snapshot at Day {day}:\n{snapshot_context}\nProvide your management proposal in raw JSON."
+        user_prompt = f"Corporate Snapshot (Day {day}):\n{snapshot_context}\n\nRespond with ONLY valid JSON for the CEO management proposal:"
 
         proposal: Optional[ManagerProposal] = None
         source_label = "LM Studio"
