@@ -100,7 +100,13 @@ dist
 # SQLite database files
 simcorp.db
 simcorp.db-wal
+
+simcorp.db-wal
 simcorp.db-shm
+
+# Bytecode and compiled files
+__pycache__/
+*.py[cod]
 
 
 # vitepress build output
