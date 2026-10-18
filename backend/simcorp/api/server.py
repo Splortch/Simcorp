@@ -404,8 +404,20 @@ if frontend_dist_dir.exists():
 
     @app.get("/{full_path:path}")
     def serve_spa(full_path: str):
-        file_path = frontend_dist_dir / full_path
+        base_dir = frontend_dist_dir.resolve()
+        requested = Path(full_path)
+
+        # Reject absolute paths and traversal attempts from user input.
+        if requested.is_absolute() or ".." in requested.parts:
+            return FileResponse(base_dir / "index.html")
+
+        file_path = (base_dir / requested).resolve()
+        try:
+            file_path.relative_to(base_dir)
+        except ValueError:
+            return FileResponse(base_dir / "index.html")
+
         if file_path.is_file():
             return FileResponse(file_path)
-        return FileResponse(frontend_dist_dir / "index.html")
+        return FileResponse(base_dir / "index.html")
 
