@@ -1,6 +1,8 @@
 """FastAPI REST server exposing the simulation state and control endpoints."""
 from __future__ import annotations
 import asyncio
+import os
+import sys
 import uuid
 from pathlib import Path
 from fastapi import FastAPI, HTTPException
@@ -25,7 +27,16 @@ from simcorp.ai.client import LMStudioClient
 from simcorp.models.ai_schemas import AIConfigModel, AIHealthStatus
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
-DB_PATH = PROJECT_ROOT / "simcorp.db"
+
+# In a PyInstaller build, keep save data outside the temporary extraction folder.
+if getattr(sys, "frozen", False):
+    data_root = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
+    DATA_DIR = data_root / "SimCorp"
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+else:
+    DATA_DIR = PROJECT_ROOT
+
+DB_PATH = DATA_DIR / "simcorp.db"
 engine = SimulationEngine(db_path=DB_PATH)
 ai_orchestrator = AIOrchestrator(db_path=str(DB_PATH))
 
