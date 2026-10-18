@@ -100,6 +100,18 @@ CREATE TABLE IF NOT EXISTS ai_decisions (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS ai_config (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    enabled INTEGER NOT NULL DEFAULT 1,
+    provider TEXT NOT NULL DEFAULT 'lm_studio',
+    base_url TEXT NOT NULL DEFAULT 'http://localhost:1234/v1',
+    model_id TEXT NOT NULL DEFAULT 'google/gemma-4-e4b',
+    autonomy_mode TEXT NOT NULL DEFAULT 'autonomous', -- autonomous, oversight, player_approval
+    review_frequency_days INTEGER NOT NULL DEFAULT 2,
+    timeout_seconds REAL NOT NULL DEFAULT 8.0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS activity_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     day INTEGER NOT NULL,

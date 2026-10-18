@@ -4,6 +4,8 @@ import { TopBar } from './components/TopBar';
 import { ProductManager } from './components/ProductManager';
 import { FinancialCharts } from './components/FinancialCharts';
 import { ActivityAndLedger } from './components/ActivityAndLedger';
+import { AIManagerPanel } from './components/AIManagerPanel';
+import { AISettingsModal } from './components/AISettingsModal';
 import { NewGameModal } from './components/NewGameModal';
 import {
   TrendingUp,
@@ -20,7 +22,35 @@ export const App: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showNewGameModal, setShowNewGameModal] = useState(false);
+  const [showAISettings, setShowAISettings] = useState(false);
   const [showTutorial, setShowTutorial] = useState(false);
+
+  const handleTriggerAIReview = async () => {
+    try {
+      await fetch('/api/ai/review-now', { method: 'POST' });
+      await fetchState();
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleApproveAIDecision = async (id: string) => {
+    try {
+      await fetch(`/api/ai/decisions/${id}/approve`, { method: 'POST' });
+      await fetchState();
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleRejectAIDecision = async (id: string) => {
+    try {
+      await fetch(`/api/ai/decisions/${id}/reject`, { method: 'POST' });
+      await fetchState();
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
   // Fetch full authoritative game state from local FastAPI backend
   const fetchState = useCallback(async () => {
@@ -228,6 +258,17 @@ export const App: React.FC = () => {
           />
         )}
 
+        {/* Autonomous AI Management Panel */}
+        {gameState && (
+          <AIManagerPanel
+            decisions={gameState.ai_decisions || []}
+            onTriggerReview={handleTriggerAIReview}
+            onApprove={handleApproveAIDecision}
+            onReject={handleRejectAIDecision}
+            onOpenSettings={() => setShowAISettings(true)}
+          />
+        )}
+
         {/* Authoritative Ledger & Activity Feed */}
         {gameState && (
           <ActivityAndLedger
@@ -239,8 +280,9 @@ export const App: React.FC = () => {
 
       {/* Footer / Status bar */}
       <footer className="border-t border-slate-800/80 py-3 px-6 bg-slate-950/60 text-xs text-slate-500 flex items-center justify-between">
-        <div>SimCorp Business Simulation Engine • Milestone 1 Active</div>
+        <div>SimCorp Business Simulation Engine • Milestone 1 & 3 Active</div>
         <div className="flex items-center gap-4">
+          <button onClick={() => setShowAISettings(true)} className="hover:text-slate-300">AI Config</button>
           <button onClick={() => setShowTutorial(true)} className="hover:text-slate-300">Quick Guide</button>
           <span>Engine: Local SQLite Authoritative Journal</span>
         </div>
@@ -251,6 +293,12 @@ export const App: React.FC = () => {
         isOpen={showNewGameModal}
         onClose={() => setShowNewGameModal(false)}
         onCreateGame={handleCreateGame}
+      />
+
+      {/* AI Settings Modal */}
+      <AISettingsModal
+        isOpen={showAISettings}
+        onClose={() => setShowAISettings(false)}
       />
     </div>
   );

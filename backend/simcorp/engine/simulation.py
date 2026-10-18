@@ -349,6 +349,7 @@ class SimulationEngine:
         latest_snapshot = snapshots[-1] if snapshots else None
         transactions = conn.execute("SELECT * FROM ledger ORDER BY rowid DESC LIMIT 30;").fetchall()
         activities = conn.execute("SELECT * FROM activity_log ORDER BY id DESC LIMIT 50;").fetchall()
+        ai_decisions = conn.execute("SELECT * FROM ai_decisions ORDER BY created_at DESC, rowid DESC LIMIT 20;").fetchall()
 
         current_cash = self.get_current_cash(conn)
         conn.close()
@@ -366,6 +367,7 @@ class SimulationEngine:
             "historical_snapshots": [dict(s) for s in snapshots],
             "recent_transactions": [dict(t) for t in transactions],
             "recent_activities": [dict(a) for a in activities],
+            "ai_decisions": [dict(d) for d in ai_decisions],
             "daily_fixed_opex": 50.0
         }
 

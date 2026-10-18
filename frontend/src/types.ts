@@ -62,6 +62,38 @@ export interface ActivityLogItem {
   created_at?: string;
 }
 
+export interface AIDecisionRecord {
+  id: string;
+  day: number;
+  manager_role: string;
+  action_type: string;
+  parameters_json: string;
+  reasoning: string;
+  confidence: number;
+  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'EXECUTED' | 'FAILED';
+  result_summary?: string;
+  created_at?: string;
+}
+
+export interface AIConfig {
+  enabled: boolean;
+  provider: string;
+  base_url: string;
+  model_id: string;
+  autonomy_mode: 'autonomous' | 'oversight' | 'player_approval';
+  review_frequency_days: number;
+  timeout_seconds: number;
+}
+
+export interface AIHealthStatus {
+  connected: boolean;
+  provider: string;
+  base_url: string;
+  model_id: string;
+  models_available: string[];
+  error_message?: string;
+}
+
 export interface FullGameState {
   company: CompanyState;
   clock: GameClock;
@@ -71,5 +103,6 @@ export interface FullGameState {
   historical_snapshots: DailySnapshot[];
   recent_transactions: LedgerEntry[];
   recent_activities: ActivityLogItem[];
+  ai_decisions: AIDecisionRecord[];
   daily_fixed_opex: number;
 }

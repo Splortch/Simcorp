@@ -14,8 +14,13 @@ from simcorp.models.schemas import (
     UpdateProductRequest
 )
 
+from simcorp.ai.orchestrator import AIOrchestrator
+from simcorp.ai.client import LMStudioClient
+from simcorp.models.ai_schemas import AIConfigModel, AIHealthStatus
+
 DB_PATH = Path("simcorp.db")
 engine = SimulationEngine(db_path=DB_PATH)
+ai_orchestrator = AIOrchestrator(db_path=str(DB_PATH))
 
 app = FastAPI(
     title="SimCorp Simulation API",
@@ -43,6 +48,10 @@ async def simulation_clock_loop():
             clock = state["clock"]
             if not clock["is_paused"]:
                 engine.advance_day()
+                # Run AI executive management review cycle
+                new_state = engine.get_full_state()
+                # Execute asynchronously to not block the clock interval
+                asyncio.create_task(asyncio.to_thread(ai_orchestrator.run_management_cycle, new_state))
             await asyncio.sleep(clock["tick_speed_seconds"])
         except asyncio.CancelledError:
             break
@@ -113,6 +122,41 @@ def update_product_parameters(product_id: str, req: UpdateProductRequest):
     if not success:
         raise HTTPException(status_code=404, detail=f"Product {product_id} not found")
     return {"status": "success", "product_id": product_id}
+
+@app.get("/api/ai/config", response_model=AIConfigModel)
+def get_ai_config():
+    return ai_orchestrator.get_config()
+
+@app.post("/api/ai/config")
+def update_ai_config(cfg: AIConfigModel):
+    ai_orchestrator.save_config(cfg)
+    return {"status": "success", "config": cfg}
+
+@app.get("/api/ai/health", response_model=AIHealthStatus)
+def check_ai_health():
+    cfg = ai_orchestrator.get_config()
+    client = LMStudioClient(cfg)
+    return client.check_health()
+
+@app.post("/api/ai/review-now")
+def trigger_ai_review_now():
+    state = engine.get_full_state()
+    decisions = ai_orchestrator.run_management_cycle(state, force=True)
+    return {"status": "success", "decisions_count": len(decisions), "decisions": decisions}
+
+@app.post("/api/ai/decisions/{decision_id}/approve")
+def approve_ai_decision(decision_id: str):
+    success = ai_orchestrator.approve_decision(decision_id)
+    if not success:
+        raise HTTPException(status_code=400, detail="Cannot approve decision (not pending or not found)")
+    return {"status": "success", "decision_id": decision_id}
+
+@app.post("/api/ai/decisions/{decision_id}/reject")
+def reject_ai_decision(decision_id: str):
+    success = ai_orchestrator.reject_decision(decision_id)
+    if not success:
+        raise HTTPException(status_code=400, detail="Cannot reject decision (not pending or not found)")
+    return {"status": "success", "decision_id": decision_id}
 
 # Mount static frontend production build if available
 frontend_dist_dir = Path(__file__).resolve().parent.parent.parent.parent / "frontend" / "dist"

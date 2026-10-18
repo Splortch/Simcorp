@@ -61,6 +61,8 @@ class ActivityLogItem(BaseModel):
     details_json: Optional[str] = None
     created_at: Optional[str] = None
 
+from simcorp.models.ai_schemas import AIDecisionRecord
+
 class FullGameState(BaseModel):
     company: CompanyState
     clock: GameClock
@@ -70,6 +72,7 @@ class FullGameState(BaseModel):
     historical_snapshots: List[DailySnapshot] = []
     recent_transactions: List[LedgerEntry] = []
     recent_activities: List[ActivityLogItem] = []
+    ai_decisions: List[AIDecisionRecord] = []
     daily_fixed_opex: float = 50.0
 
 class NewGameRequest(BaseModel):
