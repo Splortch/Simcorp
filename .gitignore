@@ -96,7 +96,12 @@ dist
 .temp
 
 # Sveltekit cache directory
-.svelte-kit/
+
+# SQLite database files
+simcorp.db
+simcorp.db-wal
+simcorp.db-shm
+
 
 # vitepress build output
 **/.vitepress/dist
