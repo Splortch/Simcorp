@@ -84,7 +84,7 @@ $env:PYTHONPATH="backend"
 python -m pytest backend/tests
 ```
 
-All 4 core simulation test suites run and pass deterministically.
+The automated test suite is run in GitHub Actions for pull requests and pushes to main.
 
 ---
 
