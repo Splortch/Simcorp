@@ -1,8 +1,11 @@
 """Database schema and SQLite connection management for SimCorp."""
 from __future__ import annotations
 import sqlite3
+import logging
 from pathlib import Path
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 SCHEMA_SQL = """
 PRAGMA foreign_keys = ON;
@@ -264,6 +267,12 @@ def initialize_database(db_path: Path | str = "simcorp.db") -> None:
         for stmt in MIGRATION_STMTS:
             try:
                 conn.execute(stmt)
-            except Exception:
-                pass  # Column already exists -- safe to ignore
+            except sqlite3.OperationalError as exc:
+                # Re-running an additive migration is safe only when its column
+                # already exists. All other schema failures must be visible.
+                if "duplicate column name" in str(exc).lower():
+                    logger.debug("Skipping already-applied migration: %s", stmt)
+                    continue
+                logger.exception("Database migration failed: %s", stmt)
+                raise
     conn.close()
