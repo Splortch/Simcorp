@@ -51,7 +51,7 @@ app = FastAPI(
 # origins with credentials, and reject browser-originated writes from other sites.
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$",
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1|\[::1\]):(5173|8000)$",
     allow_credentials=False,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization"],
@@ -65,9 +65,15 @@ async def reject_cross_origin_mutations(request: Request, call_next):
         origin = request.headers.get("origin")
         if origin:
             parsed = urlparse(origin)
-            if parsed.scheme not in {"http", "https"} or parsed.hostname not in {
-                "localhost", "127.0.0.1", "::1"
-            }:
+            try:
+                allowed_local_origin = (
+                    parsed.scheme in {"http", "https"}
+                    and parsed.hostname in {"localhost", "127.0.0.1", "::1"}
+                    and parsed.port in {5173, 8000}
+                )
+            except ValueError:
+                allowed_local_origin = False
+            if not allowed_local_origin:
                 return JSONResponse(status_code=403, content={"detail": "Cross-origin request blocked"})
     return await call_next(request)
 
