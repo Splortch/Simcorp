@@ -51,7 +51,7 @@ app = FastAPI(
 # origins with credentials, and reject browser-originated writes from other sites.
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=r"^https?://(localhost|127\\.0\\.0\\.1|\\[::1\\])(:\\d+)?$",
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$",
     allow_credentials=False,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization"],
