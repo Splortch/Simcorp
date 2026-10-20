@@ -158,3 +158,22 @@ vite.config.ts.timestamp-*
 
 # Turbo Repo
 .turbo
+
+# Virtual Environment
+.venv/
+
+# Build Artifacts (PyInstaller output)
+backend/dist/
+
+# Compiled binaries and temporary build directories
+build/
+**/__init__.py
+
+# Virtual Environment
+.venv/
+
+# Build Artifacts (PyInstaller output)
+backend/dist/
+
+# Compiled binaries and temporary build directories
+build/
