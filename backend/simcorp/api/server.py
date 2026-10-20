@@ -55,11 +55,10 @@ async def simulation_clock_loop():
             clock = state["clock"]
             if not clock["is_paused"]:
                 engine.advance_day()
-                # Run AI executive management review cycle
+                # Run AI executive management review cycle and workforce cycle sequentially
                 new_state = engine.get_full_state()
-                # Execute asynchronously to not block the clock interval
-                asyncio.create_task(asyncio.to_thread(ai_orchestrator.run_management_cycle, new_state))
-                asyncio.create_task(asyncio.to_thread(task_manager.execute_daily_workforce_cycle, engine, new_state))
+                await asyncio.to_thread(ai_orchestrator.run_management_cycle, new_state)
+                await asyncio.to_thread(task_manager.execute_daily_workforce_cycle, engine, new_state)
             await asyncio.sleep(clock["tick_speed_seconds"])
         except asyncio.CancelledError:
             break

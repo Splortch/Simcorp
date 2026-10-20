@@ -60,7 +60,8 @@ class SimulationEngine:
                 "ledger", "products", "market_segments", "market_events",
                 "daily_snapshots", "ai_decisions", "activity_log", "company",
                 "game_clock", "employees", "rd_projects", "marketing_campaigns",
-                "loans", "game_settings",
+                "loans", "game_settings", "ai_agents", "ai_tasks", "ai_task_reviews",
+                "ai_decisions", # Added explicit clear for AI decisions
             ]:
                 conn.execute(f"DELETE FROM {tbl};")
 
@@ -259,20 +260,40 @@ class SimulationEngine:
                 (day, "SYSTEM", "SUCCESS", f"VICTORY: {goal} target of {target:.0f} reached on day {day}!")
             )
 
-    def advance_day(self) -> Dict[str, Any]:
-        """
-        Executes a single simulation day in strict, deterministic order:
-        1. Check clock and increment day.
-        2. Wages: Pay all active employees.
-        3. Loan servicing: Pay daily interest + repayment on active loans.
-        4. R&D: Advance active projects, apply quality gains on completion.
-        5. Marketing: Compute demand boost from active campaigns, deduct spend.
-        6. Production: Enforce cash constraint and produce inventory up to target.
-        7. Market demand & Sales: Convert demand (with marketing + difficulty boosts).
-        8. Expenses: Pay fixed OPEX.
-        9. Reputation dynamics.
-        10. Financial snapshot, distress classification, win/loss check.
-        """
+    def _handle_market_event(self, conn: sqlite3.Connection, day: int) -> None:
+        """Checks for and applies a random market event based on difficulty multipliers."""
+        mults = self._get_settings_multipliers(conn)
+        event_freq = mults["event_frequency_multiplier"]
+
+        # Event occurs if random roll is less than the frequency multiplier (e.g., 1.5x chance for hard mode)
+        if self.random.uniform(0, 1) < event_freq:
+            event_type = self.random.choice(["BOOM", "CRASH", "REGULATION"])
+            conn.execute("INSERT INTO activity_log (day,category,severity,message) VALUES (?,?,?,?);",
+                         (day, "SYSTEM", "INFO", f"MARKET EVENT: {event_type} detected!"));
+
+            if event_type == "BOOM":
+                # Tech Boom: Increases demand and reputation temporarily
+                conn.execute("UPDATE products SET selling_price = selling_price * 1.1 WHERE id = 'prod_001';")
+                conn.execute("UPDATE company SET reputation = reputation + 5 WHERE id = 'comp_001';")
+                self.record_transaction(
+                    conn=conn, day=day, category="MARKET", amount=0.0, description="Market Boom: Price increase and rep boost.", reference_id=None
+                )
+            elif event_type == "CRASH":
+                # Supply Chain Shock: Increases costs and reduces demand temporarily
+                conn.execute("UPDATE products SET production_cost = production_cost * 1.2 WHERE id = 'prod_001';")
+                self.record_transaction(
+                    conn=conn, day=day, category="MARKET", amount=0.0, description="Market Crash: Cost increase.", reference_id=None
+                )
+            elif event_type == "REGULATION":
+                # Government Regulation: Reduces max selling price and reputation gain potential
+                conn.execute("UPDATE products SET selling_price = selling_price * 0.9 WHERE id = 'prod_001';")
+                self.record_transaction(
+                    conn=conn, day=day, category="MARKET", amount=0.0, description="Market Regulation: Price reduction.", reference_id=None
+                )
+
+            # Log the event details in a dedicated table (assuming it exists or will be created)
+            conn.execute("INSERT INTO market_events (day, type, impact_description) VALUES (?, ?, ?);",
+                         (day, event_type, f"Applied {event_type} effect."))
         conn = get_db_connection(self.db_path)
         with conn:
             clock_row = conn.execute("SELECT current_day FROM game_clock WHERE id = 1;").fetchone()
@@ -321,20 +342,48 @@ class SimulationEngine:
                 new_balance = round(loan["outstanding_balance"] - repayment, 2)
                 total_loan_cost_today += payment
                 if payment > 0:
-                    self.record_transaction(
-                        conn=conn, day=current_day, category="LOAN_REPAYMENT",
-                        amount=-payment,
-                        description=f"Loan {loan['id']}: {interest:.2f} interest + {repayment:.2f} principal",
-                        reference_id=loan["id"]
-                    )
-                if new_balance <= 0:
-                    conn.execute("UPDATE loans SET outstanding_balance=0, status='REPAID' WHERE id=?;", (loan["id"],))
-                    conn.execute(
-                        "INSERT INTO activity_log (day,category,severity,message) VALUES (?,?,?,?);",
-                        (current_day, "FINANCE", "SUCCESS", f"Loan {loan['id']} fully repaid!")
-                    )
-                else:
-                    conn.execute("UPDATE loans SET outstanding_balance=? WHERE id=?;", (new_balance, loan["id"]))
+                    # Check if we can afford the full payment before recording
+                    current_cash_check = self.get_current_cash(conn)
+                    if current_cash_check >= payment:
+                        self.record_transaction(
+                            conn=conn, day=current_day, category="LOAN_REPAYMENT",
+                            amount=-payment,
+                            description=f"Loan {loan['id']}: {interest:.2f} interest + {repayment:.2f} principal",
+                            reference_id=loan["id"]
+                        )
+                        if new_balance <= 0:
+                            conn.execute("UPDATE loans SET outstanding_balance=0, status='REPAID' WHERE id=?;", (loan["id"],))
+                            conn.execute(
+                                "INSERT INTO activity_log (day,category,severity,message) VALUES (?,?,?,?);",
+                                (current_day, "FINANCE", "SUCCESS", f"Loan {loan['id']} fully repaid!")
+                            )
+                        else:
+                            conn.execute("UPDATE loans SET outstanding_balance=? WHERE id=?;", (new_balance, loan["id"]))
+                    else:
+                        # Partial payment due to insufficient funds
+                        affordable = current_cash_check
+                        if affordable > 0:
+                            self.record_transaction(
+                                conn=conn, day=current_day, category="LOAN_REPAYMENT",
+                                amount=-affordable,
+                                description=f"Loan {loan['id']}: Partial payment due to insufficient funds.",
+                                reference_id=loan["id"]
+                            )
+                            # Calculate how much of the required payment was covered
+                            covered_ratio = affordable / payment
+                            partial_payment = round(payment * covered_ratio, 2)
+                            new_balance_after_partial = round(loan["outstanding_balance"] - partial_payment, 2)
+
+                            conn.execute("UPDATE loans SET outstanding_balance=? WHERE id=?;", (new_balance_after_partial, loan["id"]))
+                            conn.execute(
+                                "INSERT INTO activity_log (day,category,severity,message) VALUES (?,?,?,?);",
+                                (current_day, "FINANCE", "WARNING", f"Loan {loan['id']} only partially paid ({affordable:.2f} cr) due to insufficient funds.")
+                            )
+                        else:
+                            conn.execute(
+                                "INSERT INTO activity_log (day,category,severity,message) VALUES (?,?,?,?);",
+                                (current_day, "FINANCE", "WARNING", f"Loan {loan['id']} only partially paid ({affordable:.2f} cr) due to insufficient funds.")
+                            )
 
             # ---- 3. R&D PROJECTS --------------------------------------------
             total_rd_spend_today = 0.0
@@ -407,6 +456,8 @@ class SimulationEngine:
                 # Each campaign contributes a small additive demand boost (+2-5%)
                 boost = 0.02 * camp["effectiveness_multiplier"]
                 marketing_demand_boost += boost
+
+            self._handle_market_event(conn, current_day) # <-- NEW: Apply market event shocks
 
             # ---- 5. PRODUCTION PHASE ----------------------------------------
             active_products = conn.execute(
