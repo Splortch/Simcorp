@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "simcorp"
+version = "0.1.0"
+description = "SimCorp Business Simulation Engine"
+readme = "README.md"
+requires-python = ">=3.12"
+license = {text = "MIT"}
+authors = [
+    {name = "SimCorp Team", email = "team@simcorp.example.com"}
+]
+keywords = ["simulation", "business-game", "ai-management"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+
+[project.urls]
+"Repository" = "https://github.com/Splortch/Simcorp"
+"Homepage" = "https://simcorp.example.com"
+
+[tool.setuptools.packages.find]
+include = ["simcorp*"]
+
+[tool.setuptools]
+py-modules = ["simcorp"]
+package-dir = {"" = "."}
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "black>=23.0",
+    "ruff>=0.1.0",
+    "mypy>=1.0",
+]
