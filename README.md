@@ -4,7 +4,9 @@ SimCorp is a business management simulation game where you establish and operate
 
 ---
 
-## Current Status: Milestone 1 Delivered
+## Current Status
+
+SimCorp includes a local simulation engine, persistent SQLite saves, a React dashboard, AI management/workforce features, and a Windows desktop packaging workflow. Features and test coverage are still evolving; see the roadmap below for planned work.
 
 - **Architecture:** Local-first Windows desktop application powered by a deterministic Python economic simulation engine, SQLite persistence, and a React + TypeScript + Tailwind CSS executive dashboard.
 - **Starting Conditions:** Brand-new company starting with 10,000 credits, production lines, demand calculations, and double-entry ledger records.
@@ -82,7 +84,7 @@ $env:PYTHONPATH="backend"
 python -m pytest backend/tests
 ```
 
-All 4 core simulation test suites run and pass deterministically.
+The automated test suite is run in GitHub Actions for pull requests and pushes to main.
 
 ---
 
@@ -90,8 +92,8 @@ All 4 core simulation test suites run and pass deterministically.
 
 - [x] **Milestone 1:** Working foundation, desktop shell, SQLite persistence, deterministic day clock, ledger transactions, interactive dashboard, and automated tests.
 - [ ] **Milestone 2:** Multi-segment customer demand, suppliers, lead times, resource purchasing, and random market events.
-- [ ] **Milestone 3:** Local LLM integration (Ollama / LM Studio) with CEO & Operations management roles and fallback rules.
-- [ ] **Milestone 4:** Full executive committee (CFO, CMO, R&D) with multi-agent coordination.
+- [x] **Milestone 3:** Local LLM integration (LM Studio) with management roles and fallback rules.
+- [x] **Milestone 4:** Executive committee (CFO, CMO, R&D) with multi-agent coordination.
 - [ ] **Milestone 5:** Research tree, competitors, and advanced organizational growth.
 - [ ] **Milestone 6:** Polish, achievements, and installer packaging.
 
@@ -99,4 +101,4 @@ All 4 core simulation test suites run and pass deterministically.
 
 ## License
 
-MIT License. See [LICENSE](file:///w:/Github_projects/Simcorp/LICENSE) for details.
+MIT License. See [LICENSE](LICENSE) for details.

@@ -5,10 +5,11 @@ import os
 import sys
 import uuid
 from pathlib import Path
-from fastapi import FastAPI, HTTPException
+from urllib.parse import urlparse
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from simcorp.engine.simulation import SimulationEngine
 from simcorp.engine.db import get_db_connection
 from simcorp.models.schemas import (
@@ -46,14 +47,35 @@ app = FastAPI(
     version="0.1.0"
 )
 
-# Enable CORS for local desktop UI / dev server
+# The desktop UI and Vite dev server are local-only. Never combine wildcard
+# origins with credentials, and reject browser-originated writes from other sites.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1|\[::1\]):(5173|8000)$",
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization"],
 )
+
+
+@app.middleware("http")
+async def reject_cross_origin_mutations(request: Request, call_next):
+    """Block cross-site browser writes to the unauthenticated local API."""
+    if request.method not in {"GET", "HEAD", "OPTIONS"}:
+        origin = request.headers.get("origin")
+        if origin:
+            parsed = urlparse(origin)
+            try:
+                allowed_local_origin = (
+                    parsed.scheme in {"http", "https"}
+                    and parsed.hostname in {"localhost", "127.0.0.1", "::1"}
+                    and parsed.port in {5173, 8000}
+                )
+            except ValueError:
+                allowed_local_origin = False
+            if not allowed_local_origin:
+                return JSONResponse(status_code=403, content={"detail": "Cross-origin request blocked"})
+    return await call_next(request)
 
 # Background tick loop task reference
 clock_task: asyncio.Task | None = None

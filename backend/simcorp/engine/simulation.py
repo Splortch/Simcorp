@@ -60,9 +60,16 @@ class SimulationEngine:
                 "ledger", "products", "market_segments", "market_events",
                 "daily_snapshots", "ai_decisions", "activity_log", "company",
                 "game_clock", "employees", "rd_projects", "marketing_campaigns",
-                "loans", "game_settings",
+                "loans", "game_settings", "ai_task_reviews", "ai_tasks",
             ]:
                 conn.execute(f"DELETE FROM {tbl};")
+
+            # Keep the seeded specialist hierarchy, but reset all per-game agent state.
+            conn.execute("""
+                UPDATE ai_agents
+                SET current_status = 'IDLE', current_objective = '',
+                    performance_score = 100.0, tasks_completed = 0, tasks_failed = 0;
+            """)
 
             company_id = "comp_001"
             conn.execute(
